@@ -1,6 +1,8 @@
 name: Calculate CI Failure Rate
 
 on:
+  schedule:
+    - cron: '0 0 * * *' # Run daily at midnight UTC
   workflow_dispatch: # Allow manual triggering of the workflow
 
 jobs:
@@ -25,27 +27,27 @@ jobs:
           let totalCount = 0;
 
           // Fetch all PRs from the last day
-          const { data: pullRequests } = await github.pulls.list({
+          const pullRequests = await github.rest.pulls.list({
             owner,
             repo,
             state: 'all',
             sort: 'created',
             direction: 'desc',
-            per_page: 100
+            per_page: 100,
           });
 
-          for (const pr of pullRequests) {
+          for (const pr of pullRequests.data) {
             // Filter out PRs that were created earlier than the target date
             if (new Date(pr.created_at) < new Date(since)) continue;
 
             // Get the check runs for each PR's latest commit
-            const { data: checkRuns } = await github.checks.listForRef({
+            const checkRuns = await github.rest.checks.listForRef({
               owner,
               repo,
               ref: pr.head.sha,
             });
 
-            for (const check of checkRuns.check_runs) {
+            for (const check of checkRuns.data.check_runs) {
               totalCount++;
               if (check.conclusion === 'failure') {
                 failureCount++;
