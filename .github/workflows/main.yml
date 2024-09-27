@@ -1,4 +1,4 @@
-name: Calculate CI Failure Rate
+name: Calculate CI Failure Rate for Specific Workflow
 
 on:
   schedule:
@@ -13,7 +13,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    - name: Calculate CI failure rate for the last day
+    - name: Calculate CI failure rate for 'test-go.yaml' workflow in the last day
       uses: actions/github-script@v6
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -21,42 +21,32 @@ jobs:
         script: |
           const owner = 'fleetdm';
           const repo = 'fleet';
+          const workflow_id = 'test-go.yaml';
           const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
           let failureCount = 0;
           let totalCount = 0;
 
-          // Fetch all PRs from the last day
-          const pullRequests = await github.rest.pulls.list({
+          // Fetch workflow runs for the specified workflow ID in the last day
+          const workflowRuns = await github.rest.actions.listWorkflowRuns({
             owner,
             repo,
-            state: 'all',
-            sort: 'created',
-            direction: 'desc',
+            workflow_id,
             per_page: 100,
           });
 
-          for (const pr of pullRequests.data) {
-            // Filter out PRs that were created earlier than the target date
-            if (new Date(pr.created_at) < new Date(since)) continue;
+          for (const run of workflowRuns.data.workflow_runs) {
+            // Filter runs that were created earlier than the target date
+            if (new Date(run.created_at) < new Date(since)) continue;
 
-            // Get the check runs for each PR's latest commit
-            const checkRuns = await github.rest.checks.listForRef({
-              owner,
-              repo,
-              ref: pr.head.sha,
-            });
-
-            for (const check of checkRuns.data.check_runs) {
-              totalCount++;
-              if (check.conclusion === 'failure') {
-                failureCount++;
-              }
+            totalCount++;
+            if (run.conclusion === 'failure') {
+              failureCount++;
             }
           }
 
           const failureRate = totalCount > 0 ? (failureCount / totalCount) * 100 : 0;
 
-          console.log(`Total CI Runs: ${totalCount}`);
-          console.log(`Failed CI Runs: ${failureCount}`);
+          console.log(`Total Workflow Runs: ${totalCount}`);
+          console.log(`Failed Workflow Runs: ${failureCount}`);
           console.log(`Failure Rate: ${failureRate.toFixed(2)}%`);
