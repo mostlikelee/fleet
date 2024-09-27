@@ -1,0 +1,73 @@
+name: Calculate CI Failure Rate
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Run daily at midnight UTC
+
+jobs:
+  calculate-failure-rate:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+
+    - name: Install dependencies
+      run: npm install -g @octokit/core
+
+    - name: Calculate CI failure rate for the last day
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        const { Octokit } = require("@octokit/core");
+        const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+
+        (async () => {
+          const owner = 'YOUR_ORG_OR_USERNAME';
+          const repo = 'YOUR_REPO_NAME';
+          const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          
+          let failureCount = 0;
+          let totalCount = 0;
+
+          // Fetch all PRs from the last day
+          const { data: pullRequests } = await octokit.request('GET /repos/{owner}/{repo}/pulls', {
+            owner,
+            repo,
+            state: 'all',
+            sort: 'created',
+            direction: 'desc',
+            per_page: 100,
+            since,
+          });
+
+          for (const pr of pullRequests) {
+            // Get the check runs for each PR's latest commit
+            const { data: checkRuns } = await octokit.request('GET /repos/{owner}/{repo}/commits/{ref}/check-runs', {
+              owner,
+              repo,
+              ref: pr.head.sha,
+            });
+
+            for (const check of checkRuns.check_runs) {
+              totalCount++;
+              if (check.conclusion === 'failure') {
+                failureCount++;
+              }
+            }
+          }
+
+          const failureRate = totalCount > 0 ? (failureCount / totalCount) * 100 : 0;
+
+          console.log(`Total CI Runs: ${totalCount}`);
+          console.log(`Failed CI Runs: ${failureCount}`);
+          console.log(`Failure Rate: ${failureRate.toFixed(2)}%`);
+        })().catch(err => {
+          console.error(err);
+          process.exit(1);
+        });
